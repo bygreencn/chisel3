@@ -151,7 +151,7 @@ package object chisel3 {    // scalastyle:ignore package.object.name
   type SyncReadMem[T <: Data] = chisel3.core.SyncReadMem[T]
 
   val Module = chisel3.core.Module
-  type Module = chisel3.core.Module
+  type Module = chisel3.core.ImplicitModule
 
   val printf = chisel3.core.printf
 
@@ -271,6 +271,8 @@ package object chisel3 {    // scalastyle:ignore package.object.name
     val withClockAndReset = chisel3.core.withClockAndReset
     val withClock = chisel3.core.withClock
     val withReset = chisel3.core.withReset
+
+    type BaseModule = chisel3.core.BaseModule
 
     // Implicit conversions for BlackBox Parameters
     implicit def fromIntToIntParam(x: Int): IntParam = IntParam(BigInt(x))

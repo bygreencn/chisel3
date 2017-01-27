@@ -67,6 +67,8 @@ class BetterNamingTests extends FlatSpec {
 
     val lines = verilog.split("\n").toSeq
 
+    print(lines)
+
     val SeqDef = """\s*wire\s+seq_(\d+)_(\d+)\s+:\s+UInt\s*""".r
     val seqs = for {
       i <- (0 until 3)

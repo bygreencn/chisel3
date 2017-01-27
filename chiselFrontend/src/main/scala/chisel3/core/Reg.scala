@@ -72,7 +72,7 @@ object Reg {
     val reset = Node(Builder.forcedReset)
 
     // Bind each element of x to being a Reg
-    Binding.bind(x, RegBinder(Builder.forcedModule), "Error: t")
+    Binding.bind(x, RegBinder(Builder.forcedUserModule), "Error: t")
 
     if (init == null) {
       pushCommand(DefReg(sourceInfo, x, clock))

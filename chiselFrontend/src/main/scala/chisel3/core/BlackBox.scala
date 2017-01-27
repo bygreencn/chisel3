@@ -5,7 +5,7 @@ package chisel3.core
 import chisel3.internal.Builder.pushCommand
 import chisel3.internal.firrtl._
 import chisel3.internal.throwException
-import chisel3.internal.sourceinfo.SourceInfo
+import chisel3.internal.sourceinfo.{SourceInfo, UnlocatableSourceInfo}
 // TODO: remove this once we have CompileOptions threaded through the macro system.
 import chisel3.core.ExplicitCompileOptions.NotStrict
 
@@ -52,22 +52,24 @@ case class RawParam(value: String) extends Param
   * }}}
   * @note The parameters API is experimental and may change
   */
-abstract class BlackBox(val params: Map[String, Param] = Map.empty[String, Param]) extends Module {
+abstract class BlackBox(val params: Map[String, Param] = Map.empty[String, Param]) extends BaseModule {
+  def io: Record
 
-  // The body of a BlackBox is empty, the real logic happens in firrtl/Emitter.scala
-  // Bypass standard clock, reset, io port declaration by flattening io
-  // TODO(twigg): ? Really, overrides are bad, should extend BaseModule....
-  override private[core] def ports = io.elements.toSeq
+  private[core] override def generateComponent(): Component = {
+    _autoWrapPorts()  // pre-IO(...) compatibility hack
 
-  // Do not do reflective naming of internal signals, just name io
-  override private[core] def setRefs(): this.type = {
+    require(!_closed, "Can't generate module more than once")
+    _closed = true
+
+    val namedPorts = io.elements.toSeq
     // setRef is not called on the actual io.
     // There is a risk of user improperly attempting to connect directly with io
     // Long term solution will be to define BlackBox IO differently as part of
     //   it not descending from the (current) Module
-    for ((name, port) <- ports) {
+    for ((name, port) <- namedPorts) {
       port.setRef(ModuleIO(this, _namespace.name(name)))
     }
+
     // We need to call forceName and onModuleClose on all of the sub-elements
     // of the io bundle, but NOT on the io bundle itself.
     // Doing so would cause the wrong names to be assigned, since their parent
@@ -76,21 +78,25 @@ abstract class BlackBox(val params: Map[String, Param] = Map.empty[String, Param
       id.forceName(default="_T", _namespace)
       id._onModuleClose
     }
-    this
-  }
 
-  // Don't setup clock, reset
-  // Cann't invalide io in one bunch, must invalidate each part separately
-  override private[core] def setupInParent(implicit sourceInfo: SourceInfo): this.type = _parent match {
-    case Some(p) => {
-      // Just init instance inputs
-      for((_,port) <- ports) pushCommand(DefInvalid(sourceInfo, port.ref))
-      this
+    val firrtlPorts = for ((_, port) <- namedPorts) yield {
+      // Port definitions need to know input or output at top-level.
+      // By FIRRTL semantics, 'flipped' becomes an Input
+      val direction = if(Data.isFirrtlFlipped(port)) Direction.Input else Direction.Output
+      Port(port, direction)
     }
-    case None => this
+
+    val component = DefBlackBox(this, name, firrtlPorts, params)
+    _component = Some(component)
+    component
   }
 
-  // Using null is horrible but these signals SHOULD NEVER be used:
-  override val clock = null
-  override val reset = null
+  private[core] def initializeInParent() {
+    implicit val sourceInfo = UnlocatableSourceInfo
+
+    val namedPorts = io.elements.toSeq
+    for ((_, port) <- namedPorts) {
+      pushCommand(DefInvalid(sourceInfo, port.ref))
+    }
+  }
 }
