@@ -8,12 +8,12 @@ import chisel3.util._
 
 // Defined outside of the class so we don't get $ in name
 class Other(w: Int) extends Module {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val a = UInt(w.W)
-  }
+  })
 }
 class PerNameIndexing(count: Int) extends Module {
-  val io = new Bundle { }
+  val io = IO(new Bundle { })
 
   val wires = Seq.tabulate(count) { i => Module(new Other(i)) }
   val queues = Seq.tabulate(count) { i => Module(new Queue(UInt(i.W), 16)) }
@@ -21,7 +21,7 @@ class PerNameIndexing(count: Int) extends Module {
 
 // Note this only checks Iterable[Chisel.Data] which excludes Maps
 class IterableNaming extends Module {
-  val io = new Bundle { }
+  val io = IO(new Bundle { })
 
   val seq = Seq.tabulate(3) { i =>
     Seq.tabulate(2) { j => Wire(init = (i * j).U) }

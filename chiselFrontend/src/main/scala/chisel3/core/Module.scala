@@ -259,8 +259,6 @@ abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
   }
 
   private[core] override def generateComponent(): Component = {
-    _autoWrapPorts()  // pre-IO(...) compatibility hack
-
     require(!_closed, "Can't generate module more than once")
     _closed = true
 
@@ -323,6 +321,29 @@ abstract class ImplicitModule(
   val reset = IO(Input(Bool()))
   // Setup ClockAndReset
   Builder.currentClockAndReset = Some(ClockAndReset(clock, reset))
+
+  protected override def nameVals(): HashMap[HasId, String] = {
+    val names = super.nameVals()
+
+    // Allow IO naming without reflection
+    names.put(io, "io")
+    names.put(clock, "clock")
+    names.put(reset, "reset")
+
+    names
+  }
+
+  private[core] override def generateComponent(): Component = {
+    _autoWrapPorts()  // pre-IO(...) compatibility hack
+
+    // Restrict IO to just io, clock, and reset
+    require(io != null, "Module must have io")
+    require(_ports contains io, "Module must have io wrapped in IO(...)")
+    require((_ports contains clock) && (_ports contains reset), "Internal error, module did not have clock or reset as IO")
+    require(_ports.size == 3, "Module must only have io, clock, and reset as IO")
+
+    super.generateComponent()
+  }
 
   private[core] def initializeInParent() {
     // Don't generate source info referencing parents inside a module, since this interferes with
