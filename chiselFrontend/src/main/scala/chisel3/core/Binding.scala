@@ -131,7 +131,7 @@ object Binding {
           case binding => {
             // Attempt to diagnose common bindings issues, like forgot to wrap IO(...)
             element._parent match {
-              case Some(x: ImplicitModule) =>
+              case Some(x: LegacyModule) =>
                 // null check in case we try to access io before it is defined
                 if ((x.io != null) && (x.io.flatten contains element)) {
                   throw MissingIOWrapperException

@@ -300,27 +300,52 @@ abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
   *
   * @note Module instantiations must be wrapped in a Module() call.
   */
-abstract class ImplicitModule(
+abstract class ImplicitModule()(implicit moduleCompileOptions: CompileOptions)
+    extends UserModule {
+  // Implicit clock and reset pins
+  val clock = IO(Input(Clock()))
+  val reset = IO(Input(Bool()))
+
+  // Setup ClockAndReset
+  Builder.currentClockAndReset = Some(ClockAndReset(clock, reset))
+
+  private[core] def initializeInParent() {
+    // Don't generate source info referencing parents inside a module, since this interferes with
+    // module de-duplication in FIRRTL emission.
+    implicit val sourceInfo = UnlocatableSourceInfo
+
+    _ports.foreach { x: Data =>
+      pushCommand(DefInvalid(sourceInfo, x.ref))
+    }
+
+    clock := Builder.forcedClock
+    reset := Builder.forcedReset
+  }
+}
+
+/** Legacy Module class that restricts IOs to just io, clock, and reset, and provides a constructor
+  * for threading through explicit clock and reset.
+  *
+  * While this class isn't planned to be removed anytime soon (there are benefits to restricting
+  * IO), the clock and reset constructors will be phased out. Recommendation is to wrap the module
+  * in a withClock/withReset/withClockAndReset block, or directly hook up clock or reset IO pins.
+  */
+abstract class LegacyModule(
     override_clock: Option[Clock]=None, override_reset: Option[Bool]=None)
     (implicit moduleCompileOptions: CompileOptions)
-    extends UserModule {
+    extends ImplicitModule {
   // _clock and _reset can be clock and reset in these 2ary constructors
   // once chisel2 compatibility issues are resolved
   def this(_clock: Clock)(implicit moduleCompileOptions: CompileOptions) = this(Option(_clock), None)(moduleCompileOptions)
   def this(_reset: Bool)(implicit moduleCompileOptions: CompileOptions)  = this(None, Option(_reset))(moduleCompileOptions)
   def this(_clock: Clock, _reset: Bool)(implicit moduleCompileOptions: CompileOptions) = this(Option(_clock), Option(_reset))(moduleCompileOptions)
 
+  // IO for this Module. At the Scala level (pre-FIRRTL transformations),
+  // connections in and out of a Module may only go through `io` elements.
+  def io: Record
+
   // Allow access to bindings from the compatibility package
   protected def _ioPortBound() = _ports contains io
-
-  /** IO for this Module. At the Scala level (pre-FIRRTL transformations),
-    * connections in and out of a Module may only go through `io` elements.
-    */
-  def io: Record
-  val clock = IO(Input(Clock()))
-  val reset = IO(Input(Bool()))
-  // Setup ClockAndReset
-  Builder.currentClockAndReset = Some(ClockAndReset(clock, reset))
 
   protected override def nameVals(): HashMap[HasId, String] = {
     val names = super.nameVals()
@@ -345,7 +370,7 @@ abstract class ImplicitModule(
     super.generateComponent()
   }
 
-  private[core] def initializeInParent() {
+  private[core] override def initializeInParent() {
     // Don't generate source info referencing parents inside a module, since this interferes with
     // module de-duplication in FIRRTL emission.
     implicit val sourceInfo = UnlocatableSourceInfo
@@ -363,3 +388,4 @@ abstract class ImplicitModule(
     }
   }
 }
+
