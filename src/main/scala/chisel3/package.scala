@@ -274,6 +274,7 @@ package object chisel3 {    // scalastyle:ignore package.object.name
 
     type BaseModule = chisel3.core.BaseModule
     type MultiIOModule = chisel3.core.ImplicitModule
+    type ExtModule = chisel3.core.ExtModule
 
     // Implicit conversions for BlackBox Parameters
     implicit def fromIntToIntParam(x: Int): IntParam = IntParam(BigInt(x))

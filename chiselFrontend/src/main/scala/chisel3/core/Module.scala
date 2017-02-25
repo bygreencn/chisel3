@@ -99,6 +99,8 @@ abstract class BaseModule extends HasId {
     _ids += d
   }
 
+  protected val _ports = new ArrayBuffer[Data]()
+
   /** Generates the FIRRTL Component (Module or Blackbox) of this Module.
     * Also closes the module so no more construction can happen inside.
     */
@@ -119,100 +121,12 @@ abstract class BaseModule extends HasId {
   /** Legalized name of this module. */
   final val name = Builder.globalNamespace.name(desiredName)
 
-  /** Compatibility function. Allows Chisel2 code which had ports without the IO wrapper to
-    * compile under Bindings checks. Does nothing in non-compatibility mode.
-    *
-    * Should NOT be used elsewhere. This API will NOT last.
-    *
-    * TODO: remove this, perhaps by removing Bindings checks in compatibility mode.
-    */
-  def _autoWrapPorts() {}
-
-  //
-  // BaseModule User API functions
-  //
-  protected def annotate(annotation: ChiselAnnotation): Unit = {
-    Builder.annotations += annotation
-  }
-
-  /**
-   * This must wrap the datatype used to set the io field of any Module.
-   * i.e. All concrete modules must have defined io in this form:
-   * [lazy] val io[: io type] = IO(...[: io type])
-   *
-   * Items in [] are optional.
-   *
-   * The granted iodef WILL NOT be cloned (to allow for more seamless use of
-   * anonymous Bundles in the IO) and thus CANNOT have been bound to any logic.
-   * This will error if any node is bound (e.g. due to logic in a Bundle
-   * constructor, which is considered improper).
-   *
-   * TODO(twigg): Specifically walk the Data definition to call out which nodes
-   * are problematic.
-   */
-  protected def IO[T<:Data](iodef: T): iodef.type = {
-    require(!_closed, "Can't add more ports after module close")
-    // Bind each element of the iodef to being a Port
-    Binding.bind(iodef, PortBinder(this), "Error: iodef")
-    iodef
-  }
-
-  //
-  // Internal Functions
-  //
-
-  /** Keep component for signal names */
-  private[chisel3] var _component: Option[Component] = None
-
-  /** Signal name (for simulation). */
-  override def instanceName =
-    if (_parent == None) name else _component match {
-      case None => getRef.name
-      case Some(c) => getRef fullName c
-    }
-
-}
-
-/** Abstract base class for Modules that contain Chisel RTL.
-  */
-abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
-    extends BaseModule {
-  protected val _ports = new ArrayBuffer[Data]()
-
-  /** Registers a Data as a port, also performing bindings. Cannot be called once ports are
-    * requested (so that all calls to ports will return the same information)..
-    * Internal API.
-    */
-  override protected def IO[T<:Data](iodef: T): iodef.type = {
-    super.IO(iodef)
-    _ports += iodef
-    iodef
-  }
-
-  //
-  // RTL construction internals
-  //
-  protected val _commands = ArrayBuffer[Command]()
-  private[chisel3] def addCommand(c: Command) {
-    require(!_closed, "Can't write to module after module close")
-    _commands += c
-   }
-
-  //
-  // Other Internal Functions
-  //
-  // For debuggers/testers, TODO: refactor out into proper public API
-  private var _firrtlPorts: Option[Seq[firrtl.Port]] = None
-  lazy val getPorts = _firrtlPorts.get
-
-  val compileOptions = moduleCompileOptions
-
   /** Called at the Module.apply(...) level after this Module has finished elaborating.
     * Returns a map of nodes -> names, for named nodes.
     *
     * Helper method.
     */
-  protected def nameVals(): HashMap[HasId, String] = {
+  protected def nameIds(rootClass: Class[_]): HashMap[HasId, String] = {
     val names = new HashMap[HasId, String]()
 
     def name(node: HasId, name: String) {
@@ -245,7 +159,7 @@ abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
       */
     def cleanName(name: String): String = name.split("""\$\$""").lastOption.getOrElse(name)
 
-    for (m <- getPublicFields(classOf[UserModule])) {
+    for (m <- getPublicFields(rootClass)) {
       nameRecursively(cleanName(m.getName), m.invoke(this))
     }
 
@@ -258,11 +172,92 @@ abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
     names
   }
 
+  /** Compatibility function. Allows Chisel2 code which had ports without the IO wrapper to
+    * compile under Bindings checks. Does nothing in non-compatibility mode.
+    *
+    * Should NOT be used elsewhere. This API will NOT last.
+    *
+    * TODO: remove this, perhaps by removing Bindings checks in compatibility mode.
+    */
+  def _autoWrapPorts() {}
+
+  //
+  // BaseModule User API functions
+  //
+  protected def annotate(annotation: ChiselAnnotation): Unit = {
+    Builder.annotations += annotation
+  }
+
+  /**
+   * This must wrap the datatype used to set the io field of any Module.
+   * i.e. All concrete modules must have defined io in this form:
+   * [lazy] val io[: io type] = IO(...[: io type])
+   *
+   * Items in [] are optional.
+   *
+   * The granted iodef WILL NOT be cloned (to allow for more seamless use of
+   * anonymous Bundles in the IO) and thus CANNOT have been bound to any logic.
+   * This will error if any node is bound (e.g. due to logic in a Bundle
+   * constructor, which is considered improper).
+   *
+   * Also registers a Data as a port, also performing bindings. Cannot be called once ports are
+   * requested (so that all calls to ports will return the same information).
+   * Internal API.
+   *
+   * TODO(twigg): Specifically walk the Data definition to call out which nodes
+   * are problematic.
+   */
+  protected def IO[T<:Data](iodef: T): iodef.type = {
+    require(!_closed, "Can't add more ports after module close")
+    // Bind each element of the iodef to being a Port
+    Binding.bind(iodef, PortBinder(this), "Error: iodef")
+    _ports += iodef
+    iodef
+  }
+
+  //
+  // Internal Functions
+  //
+
+  /** Keep component for signal names */
+  private[chisel3] var _component: Option[Component] = None
+
+  /** Signal name (for simulation). */
+  override def instanceName =
+    if (_parent == None) name else _component match {
+      case None => getRef.name
+      case Some(c) => getRef fullName c
+    }
+
+}
+
+/** Abstract base class for Modules that contain Chisel RTL.
+  */
+abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
+    extends BaseModule {
+  //
+  // RTL construction internals
+  //
+  protected val _commands = ArrayBuffer[Command]()
+  private[chisel3] def addCommand(c: Command) {
+    require(!_closed, "Can't write to module after module close")
+    _commands += c
+   }
+
+  //
+  // Other Internal Functions
+  //
+  // For debuggers/testers, TODO: refactor out into proper public API
+  private var _firrtlPorts: Option[Seq[firrtl.Port]] = None
+  lazy val getPorts = _firrtlPorts.get
+
+  val compileOptions = moduleCompileOptions
+
   private[core] override def generateComponent(): Component = {
     require(!_closed, "Can't generate module more than once")
     _closed = true
 
-    val names = nameVals()
+    val names = nameIds(classOf[UserModule])
 
     // Ports get first naming priority, since they are part of a Module's IO spec
     for (port <- _ports) {
@@ -272,21 +267,23 @@ abstract class UserModule(implicit moduleCompileOptions: CompileOptions)
       _commands.prepend(DefInvalid(UnlocatableSourceInfo, port.ref))
     }
 
-    val firrtlPorts = for (port <- _ports) yield {
-      // Port definitions need to know input or output at top-level. 'flipped' means Input.
-      val direction = if(Data.isFirrtlFlipped(port)) Direction.Input else Direction.Output
-      firrtl.Port(port, direction)
-    }
-    _firrtlPorts = Some(firrtlPorts)
-
     // Then everything else gets named
     for ((node, name) <- names) {
       node.suggestName(name)
     }
 
     // All suggestions are in, force names to every node.
-    _ids.foreach(_.forceName(default="_T", _namespace))
-    _ids.foreach(_._onModuleClose)
+    for (id <- _ids) {
+      id.forceName(default="_T", _namespace)
+      id._onModuleClose
+    }
+
+    val firrtlPorts = for (port <- _ports) yield {
+      // Port definitions need to know input or output at top-level. 'flipped' means Input.
+      val direction = if(Data.isFirrtlFlipped(port)) Direction.Input else Direction.Output
+      firrtl.Port(port, direction)
+    }
+    _firrtlPorts = Some(firrtlPorts)
 
     val component = DefModule(this, name, firrtlPorts, _commands)
     _component = Some(component)
@@ -314,8 +311,8 @@ abstract class ImplicitModule()(implicit moduleCompileOptions: CompileOptions)
     // module de-duplication in FIRRTL emission.
     implicit val sourceInfo = UnlocatableSourceInfo
 
-    _ports.foreach { x: Data =>
-      pushCommand(DefInvalid(sourceInfo, x.ref))
+    for (port <- _ports) {
+      pushCommand(DefInvalid(sourceInfo, port.ref))
     }
 
     clock := Builder.forcedClock
@@ -347,8 +344,8 @@ abstract class LegacyModule(
   // Allow access to bindings from the compatibility package
   protected def _ioPortBound() = _ports contains io
 
-  protected override def nameVals(): HashMap[HasId, String] = {
-    val names = super.nameVals()
+  protected override def nameIds(rootClass: Class[_]): HashMap[HasId, String] = {
+    val names = super.nameIds(rootClass)
 
     // Allow IO naming without reflection
     names.put(io, "io")
