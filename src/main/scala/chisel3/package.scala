@@ -274,6 +274,7 @@ package object chisel3 {    // scalastyle:ignore package.object.name
 
     type BaseModule = chisel3.core.BaseModule
     type MultiIOModule = chisel3.core.ImplicitModule
+    type RawModule = chisel3.core.UserModule
     type ExtModule = chisel3.core.ExtModule
 
     // Implicit conversions for BlackBox Parameters
